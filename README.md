@@ -1,3 +1,13 @@
+A dirty fix of incorrect lfs track format in .girattributes issue.
+
+Use "{*.aaa, *.bbb, ccc, ...}" pattern to specify multiple files.
+```
+java -jar bfg-1.xxx.yyy.jar --no-blob-protection --convert-to-git-lfs "{*.zip, *.jpg}" some-larg-repos
+```
+
+
+---
+
 BFG Repo-Cleaner [![Build Status](https://travis-ci.org/rtyley/bfg-repo-cleaner.svg?branch=master)](https://travis-ci.org/rtyley/bfg-repo-cleaner)
 ================
 

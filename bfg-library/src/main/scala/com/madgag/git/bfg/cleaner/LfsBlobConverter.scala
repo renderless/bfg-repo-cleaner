@@ -34,6 +34,7 @@ import scala.util.Try
 import scalax.file.ImplicitConversions._
 import scalax.file.Path.createTempFile
 import scalax.io.JavaConverters._
+import scala.util.matching.Regex
 
 class LfsBlobConverter(
   lfsGlobExpression: String,
@@ -50,10 +51,13 @@ class LfsBlobConverter(
 
   val gitAttributesLine = s"$lfsGlobExpression filter=lfs diff=lfs merge=lfs -text"
 
+  val pattern = new Regex("[^,{}]+")
+  val lfsTracks = (pattern findAllIn lfsGlobExpression).map(_+" filter=lfs diff=lfs merge=lfs -text").toArray
+
   implicit val UTF_8 = Charset.forName("UTF-8")
 
   val lfsPointerMemo = MemoUtil.concurrentCleanerMemo[ObjectId]()
-  
+
   override def apply(dirtyBlobs: TreeBlobs) = {
     val cleanedBlobs = super.apply(dirtyBlobs)
     if (cleanedBlobs == dirtyBlobs) cleanedBlobs else ensureGitAttributesSetFor(cleanedBlobs)
@@ -63,14 +67,15 @@ class LfsBlobConverter(
     implicit lazy val inserter = threadLocalObjectDBResources.inserter()
 
     val newGitAttributesId = cleanedBlobs.entryMap.get(GitAttributesFileName).fold {
-      storeBlob(gitAttributesLine)
+      storeBlob(lfsTracks.mkString("\n"))
     } {
       case (_, oldGitAttributesId) =>
         val objectLoader = threadLocalObjectDBResources.reader().open(oldGitAttributesId)
         val oldAttributes = objectLoader.getCachedBytes.asInput.lines().toSeq
+        val newTracks = lfsTracks.filter(oldAttributes.contains(_) == false)
 
-        if (oldAttributes.contains(gitAttributesLine)) oldGitAttributesId else {
-          storeBlob((oldAttributes :+ gitAttributesLine).mkString("\n"))
+        if (newTracks.isEmpty) oldGitAttributesId else {
+          storeBlob((oldAttributes :+ newTracks.mkString("\n")).mkString("\n"))
         }
     }
     cleanedBlobs.copy(entryMap = cleanedBlobs.entryMap + (GitAttributesFileName -> (RegularFile, newGitAttributesId)))
@@ -93,9 +98,9 @@ class LfsBlobConverter(
 
   def tryStoringLfsFileFor(blobId: ObjectId)(implicit r: ObjectReader): Try[Pointer] = {
     val loader = blobId.open
-    
+
     val tmpFile = createTempFile(s"bfg.git-lfs.conv-${blobId.name}")
-    
+
     val pointer = pointerFor(loader, tmpFile)
 
     val lfsPath = lfsObjectsDir / pointer.path
